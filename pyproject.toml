@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orange-biosci-r"
+version = "0.1.0"
+description = "Custom Orange Bio Sci Widgets interacting with R"
+authors = [
+    {name = "André Santanchè"}
+]
+readme = "README.md"
+license = {file = "LICENSE"}
+classifiers = [
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: Science/Research',
+        'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+        'Programming Language :: Python :: 3',
+        'Topic :: Scientific/Engineering :: Visualization',
+        'Topic :: Scientific/Engineering :: Information Analysis',
+]
+dependencies = [
+    "Orange3>=3.32.0",
+    "rpy2>=3.5",
+    "pandas",
+    "numpy"
+]
+
+[project.urls]
+Homepage = "https://github.com/datasci4health/orange-biosci-r"
