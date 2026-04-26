@@ -16,9 +16,6 @@ from rpy2.robjects import pandas2ri
 from rpy2.robjects.conversion import localconverter
 from rpy2.robjects import default_converter
 
-
-
-
 class OWLimmaDifferentialExpression(OWWidget):
     name = "Differential Expression (limma)"
     description = "Compute differential expression using limma via rpy2"
@@ -33,6 +30,7 @@ class OWLimmaDifferentialExpression(OWWidget):
     annotation_type = Setting("")
     group1 = Setting("")
     group2 = Setting("")
+    auto_commit = Setting(False)
 
     want_main_area = False
 
@@ -43,7 +41,7 @@ class OWLimmaDifferentialExpression(OWWidget):
 
         self.annotation_box = gui.widgetBox(self.controlArea, "Grouping")
         self.annotation_combo = QComboBox()
-        self.annotation_combo.currentTextChanged.connect(self.annotation_changed)
+        self.annotation_combo.currentTextChanged.connect(self.on_annotation_changed)
         self.annotation_box.layout().addWidget(self.annotation_combo)
 
         self.control_box = gui.widgetBox(self.controlArea, "Control")
@@ -52,9 +50,14 @@ class OWLimmaDifferentialExpression(OWWidget):
 
         self.case_box = gui.widgetBox(self.controlArea, "Case")
         self.group2_combo = QComboBox()
+        self.group2_combo.currentTextChanged.connect(self.on_group2_changed)
         self.case_box.layout().addWidget(self.group2_combo)
+        
+        self.group1_combo.currentTextChanged.connect(self.on_group1_changed)
 
-        gui.button(self.controlArea, self, "Run", callback=self.run_analysis)
+        run_box = gui.hBox(self.controlArea)
+        gui.button(run_box, self, "Run", callback=self.commit)
+        gui.checkBox(run_box, self, "auto_commit", "Run automatically", callback=self.trigger_commit)
 
         # Set fixed size for the setup window
         self.setFixedSize(300, 350)
@@ -63,40 +66,88 @@ class OWLimmaDifferentialExpression(OWWidget):
     def set_data(self, data):
         self.data = data
         self.populate_annotations()
+        self.trigger_commit()
 
     def populate_annotations(self):
+        self.annotation_combo.blockSignals(True)
         self.annotation_combo.clear()
 
         if self.data is None:
+            self.annotation_combo.blockSignals(False)
             return
 
         annotations = set()
-
         for var in self.data.domain.attributes:
             for k in var.attributes:
                 annotations.add(k)
 
-        self.annotation_combo.addItems(sorted(annotations))
+        items = sorted(annotations)
+        self.annotation_combo.addItems(items)
+        if self.annotation_type in items:
+            self.annotation_combo.setCurrentText(self.annotation_type)
+        else:
+            if items:
+                self.annotation_type = items[0]
+                self.annotation_combo.setCurrentText(self.annotation_type)
+            else:
+                self.annotation_type = ""
+        self.annotation_combo.blockSignals(False)
+        self.annotation_changed()
+
+    def on_annotation_changed(self, text):
+        if self.annotation_type != text:
+            self.annotation_type = text
+            self.annotation_changed()
+            self.trigger_commit()
 
     def annotation_changed(self):
+        if self.data is None:
+            return
 
-        annotation = self.annotation_combo.currentText()
+        annotation = self.annotation_type
 
         values = set()
-
         for var in self.data.domain.attributes:
             if annotation in var.attributes:
                 values.add(var.attributes[annotation])
 
+        items = sorted(values)
+
+        self.group1_combo.blockSignals(True)
         self.group1_combo.clear()
+        self.group1_combo.addItems(items)
+        if self.group1 in items:
+            self.group1_combo.setCurrentText(self.group1)
+        elif items:
+            self.group1 = items[0]
+            self.group1_combo.setCurrentText(self.group1)
+        self.group1_combo.blockSignals(False)
+
+        self.group2_combo.blockSignals(True)
         self.group2_combo.clear()
+        self.group2_combo.addItems(items)
+        if self.group2 in items:
+            self.group2_combo.setCurrentText(self.group2)
+        elif items:
+            self.group2 = items[1] if len(items) > 1 else items[0]
+            self.group2_combo.setCurrentText(self.group2)
+        self.group2_combo.blockSignals(False)
 
-        values = sorted(values)
+    def on_group1_changed(self, text):
+        if self.group1 != text:
+            self.group1 = text
+            self.trigger_commit()
 
-        self.group1_combo.addItems(values)
-        self.group2_combo.addItems(values)
+    def on_group2_changed(self, text):
+        if self.group2 != text:
+            self.group2 = text
+            self.trigger_commit()
 
-    def run_analysis(self):
+    def trigger_commit(self):
+        if getattr(self, "auto_commit", False):
+            self.commit()
+
+    def commit(self):
         self.error()
         if self.data is None:
             return
