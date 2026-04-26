@@ -16,9 +16,7 @@ from rpy2.robjects import pandas2ri
 from rpy2.robjects.conversion import localconverter
 from rpy2.robjects import default_converter
 
-limma = importr("limma")
-base = importr("base")
-stats = importr("stats")
+
 
 
 class OWLimmaDifferentialExpression(OWWidget):
@@ -95,8 +93,16 @@ class OWLimmaDifferentialExpression(OWWidget):
         self.group2_combo.addItems(values)
 
     def run_analysis(self):
-
+        self.error()
         if self.data is None:
+            return
+
+        try:
+            limma = importr("limma")
+            base = importr("base")
+            stats = importr("stats")
+        except Exception as e:
+            self.error(f"Failed to load R packages (limma): {e}")
             return
 
         annotation = self.annotation_combo.currentText()
@@ -104,7 +110,17 @@ class OWLimmaDifferentialExpression(OWWidget):
         g2 = self.group2_combo.currentText()
 
         X = self.data.X
-        genes = [v.name for v in self.data.domain.attributes]
+        sample_names = [v.name for v in self.data.domain.attributes]
+
+        gene_names = None
+        if self.data.domain.metas:
+            for meta in self.data.domain.metas:
+                if meta.is_string:
+                    gene_names = [str(x) for x in self.data.get_column_view(meta)[0]]
+                    break
+                    
+        if gene_names is None:
+            gene_names = [f"Gene_{i+1}" for i in range(X.shape[0])]
 
         samples = []
         groups = []
@@ -120,7 +136,7 @@ class OWLimmaDifferentialExpression(OWWidget):
         if len(samples) == 0:
             return
 
-        df = pd.DataFrame(X.T, columns=genes)
+        df = pd.DataFrame(np.array(X), columns=sample_names, index=gene_names)
 
         df = df[samples]
 
@@ -141,7 +157,7 @@ class OWLimmaDifferentialExpression(OWWidget):
         """)
 
         with localconverter(default_converter + pandas2ri.converter):
-            res = pandas2ri.rpy2py(ro.r("res"))
+            res = ro.r("res")
 
         res = res.reset_index()
 
