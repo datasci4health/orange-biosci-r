@@ -105,9 +105,17 @@ class OWLimmaDifferentialExpression(OWWidget):
             limma = importr("limma")
             base = importr("base")
             stats = importr("stats")
-        except Exception as e:
-            self.error(f"Failed to load R packages (limma): {e}")
-            return
+        except Exception:
+            try:
+                import os
+                os.environ["R_LIBS_USER"] = os.path.expanduser("~/R/library")
+                ro.r(f'.libPaths(c("{os.path.expanduser("~/R/library")}", .libPaths()))')
+                limma = importr("limma")
+                base = importr("base")
+                stats = importr("stats")
+            except Exception as e:
+                self.error(f"Failed to load R packages (limma): {e}. Please ensure limma is installed and try setting the R_LIBS_USER environment variable.")
+                return
 
         annotation = self.annotation_combo.currentText()
         g1 = self.group1_combo.currentText()
@@ -157,28 +165,33 @@ class OWLimmaDifferentialExpression(OWWidget):
         design <- model.matrix(~ groups_factor)
         fit <- lmFit(expr, design)
         fit <- eBayes(fit)
-        res <- topTable(fit, coef=2, number=Inf, adjust.method="BH")
+        res <- topTable(fit, coef=2, number=Inf, adjust.method="BH", sort.by="none")
         """)
 
         with localconverter(default_converter + pandas2ri.converter):
             res = ro.r("res")
 
-        res = res.reset_index()
-
         logfc = res["logFC"].values
         pval = res["P.Value"].values
         adjp = res["adj.P.Val"].values
 
-        domain = Domain([
+        new_vars = [
             ContinuousVariable("logFC"),
             ContinuousVariable("p_value"),
             ContinuousVariable("adj_p_value")
-        ], metas=[StringVariable("gene")])
+        ]
 
-        metas = np.array(res["index"].values, dtype=object).reshape(-1,1)
+        new_domain = Domain(self.data.domain.attributes,
+                            self.data.domain.class_vars,
+                            self.data.domain.metas + tuple(new_vars))
 
-        X = np.vstack([logfc, pval, adjp]).T
+        new_metas_data = np.vstack([logfc, pval, adjp]).T
+        
+        if self.data.metas.shape[1] > 0:
+            metas_new = np.hstack([self.data.metas, new_metas_data])
+        else:
+            metas_new = new_metas_data
 
-        table = Table(domain, X, metas=metas)
+        table = Table(new_domain, self.data.X, self.data.Y, metas_new)
 
         self.Outputs.results.send(table)
