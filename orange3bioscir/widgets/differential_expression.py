@@ -41,19 +41,23 @@ class OWLimmaDifferentialExpression(OWWidget):
 
         self.data = None
 
-        box = gui.widgetBox(self.controlArea, "Grouping")
-
+        self.annotation_box = gui.widgetBox(self.controlArea, "Grouping")
         self.annotation_combo = QComboBox()
         self.annotation_combo.currentTextChanged.connect(self.annotation_changed)
-        box.layout().addWidget(self.annotation_combo)
+        self.annotation_box.layout().addWidget(self.annotation_combo)
 
+        self.control_box = gui.widgetBox(self.controlArea, "Control")
         self.group1_combo = QComboBox()
-        self.group2_combo = QComboBox()
+        self.control_box.layout().addWidget(self.group1_combo)
 
-        box.layout().addWidget(self.group1_combo)
-        box.layout().addWidget(self.group2_combo)
+        self.case_box = gui.widgetBox(self.controlArea, "Case")
+        self.group2_combo = QComboBox()
+        self.case_box.layout().addWidget(self.group2_combo)
 
         gui.button(self.controlArea, self, "Run", callback=self.run_analysis)
+
+        # Set fixed size for the setup window
+        self.setFixedSize(300, 350)
 
     @Inputs.data
     def set_data(self, data):
@@ -140,17 +144,17 @@ class OWLimmaDifferentialExpression(OWWidget):
 
         df = df[samples]
 
-        group_vector = pd.Categorical(groups)
-
         with localconverter(default_converter + pandas2ri.converter):
             r_expr = pandas2ri.py2rpy(df)
-        r_groups = ro.FactorVector(groups)
 
         ro.globalenv["expr"] = r_expr
-        ro.globalenv["groups"] = r_groups
+        ro.globalenv["groups"] = ro.StrVector(groups)
+        ro.globalenv["g1_level"] = g1
+        ro.globalenv["g2_level"] = g2
 
         ro.r("""
-        design <- model.matrix(~ groups)
+        groups_factor <- factor(groups, levels=c(g1_level, g2_level))
+        design <- model.matrix(~ groups_factor)
         fit <- lmFit(expr, design)
         fit <- eBayes(fit)
         res <- topTable(fit, coef=2, number=Inf, adjust.method="BH")
