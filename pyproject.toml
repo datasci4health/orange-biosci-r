@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orange-biosci-r"
-version = "0.1.0"
+version = "0.1.1"
 description = "Custom Orange Bio Sci Widgets interacting with R"
 authors = [
     {name = "André Santanchè"}

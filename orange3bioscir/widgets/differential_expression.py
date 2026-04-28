@@ -30,14 +30,38 @@ class OWLimmaDifferentialExpression(OWWidget):
     annotation_type = Setting("")
     group1 = Setting("")
     group2 = Setting("")
+    input_is_log2 = Setting(True)
+    orientation = Setting(0)
     auto_commit = Setting(False)
 
     want_main_area = False
+    ORIENT_GENES_ROWS = 0
+    ORIENT_SAMPLES_ROWS = 1
+    ORIENTATION_LABELS = [
+        "Genes rows / samples columns",
+        "Samples rows / genes columns",
+    ]
 
     def __init__(self):
         super().__init__()
 
         self.data = None
+
+        self.options_box = gui.widgetBox(self.controlArea, "Input")
+        self.orientation_combo = QComboBox()
+        self.orientation_combo.addItems(self.ORIENTATION_LABELS)
+        if self.orientation not in (self.ORIENT_GENES_ROWS, self.ORIENT_SAMPLES_ROWS):
+            self.orientation = self.ORIENT_GENES_ROWS
+        self.orientation_combo.setCurrentIndex(self.orientation)
+        self.orientation_combo.currentIndexChanged.connect(self.on_orientation_changed)
+        self.options_box.layout().addWidget(self.orientation_combo)
+        gui.checkBox(
+            self.options_box,
+            self,
+            "input_is_log2",
+            "Input values are already log2",
+            callback=self.trigger_commit,
+        )
 
         self.annotation_box = gui.widgetBox(self.controlArea, "Grouping")
         self.annotation_combo = QComboBox()
@@ -60,13 +84,22 @@ class OWLimmaDifferentialExpression(OWWidget):
         gui.checkBox(run_box, self, "auto_commit", "Run automatically", callback=self.trigger_commit)
 
         # Set fixed size for the setup window
-        self.setFixedSize(300, 350)
+        self.setFixedSize(330, 420)
 
     @Inputs.data
     def set_data(self, data):
         self.data = data
         self.populate_annotations()
         self.trigger_commit()
+
+    def on_orientation_changed(self, index):
+        if self.orientation != index:
+            self.orientation = index
+            self.annotation_type = ""
+            self.group1 = ""
+            self.group2 = ""
+            self.populate_annotations()
+            self.trigger_commit()
 
     def populate_annotations(self):
         self.annotation_combo.blockSignals(True)
@@ -76,12 +109,15 @@ class OWLimmaDifferentialExpression(OWWidget):
             self.annotation_combo.blockSignals(False)
             return
 
-        annotations = set()
-        for var in self.data.domain.attributes:
-            for k in var.attributes:
-                annotations.add(k)
+        if self.orientation == self.ORIENT_GENES_ROWS:
+            annotations = set()
+            for var in self.data.domain.attributes:
+                for k in var.attributes:
+                    annotations.add(k)
 
-        items = sorted(annotations)
+            items = sorted(annotations)
+        else:
+            items = [var.name for var in self.sample_annotation_vars()]
         self.annotation_combo.addItems(items)
         if self.annotation_type in items:
             self.annotation_combo.setCurrentText(self.annotation_type)
@@ -93,6 +129,38 @@ class OWLimmaDifferentialExpression(OWWidget):
                 self.annotation_type = ""
         self.annotation_combo.blockSignals(False)
         self.annotation_changed()
+
+    def sample_annotation_vars(self):
+        if self.data is None:
+            return []
+
+        candidates = list(self.data.domain.class_vars) + list(self.data.domain.metas)
+        return [
+            var for var in candidates
+            if getattr(var, "is_discrete", False) or getattr(var, "is_string", False)
+        ]
+
+    def sample_annotation_var(self, name):
+        for var in self.sample_annotation_vars():
+            if var.name == name:
+                return var
+        return None
+
+    @staticmethod
+    def value_to_str(var, value):
+        try:
+            if pd.isna(value):
+                return None
+        except TypeError:
+            pass
+
+        if getattr(var, "is_discrete", False):
+            try:
+                return var.values[int(value)]
+            except (IndexError, TypeError, ValueError):
+                return None
+
+        return str(value)
 
     def on_annotation_changed(self, text):
         if self.annotation_type != text:
@@ -106,12 +174,25 @@ class OWLimmaDifferentialExpression(OWWidget):
 
         annotation = self.annotation_type
 
-        values = set()
-        for var in self.data.domain.attributes:
-            if annotation in var.attributes:
-                values.add(var.attributes[annotation])
+        if not annotation:
+            items = []
+        elif self.orientation == self.ORIENT_GENES_ROWS:
+            values = set()
+            for var in self.data.domain.attributes:
+                if annotation in var.attributes:
+                    values.add(str(var.attributes[annotation]))
+            items = sorted(values)
+        else:
+            annotation_var = self.sample_annotation_var(annotation)
+            values = set()
+            if annotation_var is not None:
+                column = self.data.get_column_view(annotation_var)[0]
+                for value in column:
+                    value = self.value_to_str(annotation_var, value)
+                    if value is not None:
+                        values.add(value)
 
-        items = sorted(values)
+            items = sorted(values)
 
         self.group1_combo.blockSignals(True)
         self.group1_combo.clear()
@@ -132,6 +213,75 @@ class OWLimmaDifferentialExpression(OWWidget):
             self.group2 = items[1] if len(items) > 1 else items[0]
             self.group2_combo.setCurrentText(self.group2)
         self.group2_combo.blockSignals(False)
+
+    def expression_frame(self, annotation, g1, g2):
+        if self.orientation == self.ORIENT_GENES_ROWS:
+            X = np.array(self.data.X, dtype=float)
+            sample_names = [v.name for v in self.data.domain.attributes]
+
+            gene_names = None
+            if self.data.domain.metas:
+                for meta in self.data.domain.metas:
+                    if meta.is_string:
+                        gene_names = [str(x) for x in self.data.get_column_view(meta)[0]]
+                        break
+
+            if gene_names is None:
+                gene_names = [f"Gene_{i+1}" for i in range(X.shape[0])]
+
+            sample_indices = []
+            samples = []
+            groups = []
+
+            for index, var in enumerate(self.data.domain.attributes):
+                val = var.attributes.get(annotation, None)
+                if val is not None:
+                    val = str(val)
+
+                if val == g1 or val == g2:
+                    sample_indices.append(index)
+                    samples.append(var.name)
+                    groups.append(val)
+
+            if len(samples) == 0:
+                return None, [], []
+
+            return pd.DataFrame(X[:, sample_indices], columns=samples, index=gene_names), groups, gene_names
+
+        annotation_var = self.sample_annotation_var(annotation)
+        if annotation_var is None:
+            return None, [], []
+
+        column = self.data.get_column_view(annotation_var)[0]
+        sample_indices = []
+        groups = []
+        sample_names = []
+
+        for index, value in enumerate(column):
+            value = self.value_to_str(annotation_var, value)
+            if value == g1 or value == g2:
+                sample_indices.append(index)
+                groups.append(value)
+                sample_names.append(f"Sample_{index + 1}")
+
+        if len(sample_indices) == 0:
+            return None, [], []
+
+        gene_names = [var.name for var in self.data.domain.attributes]
+        X = np.array(self.data.X, dtype=float)
+        expr = X[sample_indices, :].T
+        return pd.DataFrame(expr, columns=sample_names, index=gene_names), groups, gene_names
+
+    def prepare_expression_values(self, df):
+        if self.input_is_log2:
+            return df
+
+        values = df.to_numpy(dtype=float)
+        finite_values = values[np.isfinite(values)]
+        if finite_values.size and np.nanmin(finite_values) < 0:
+            raise ValueError("Cannot log2-transform negative expression values.")
+
+        return pd.DataFrame(np.log2(values + 1.0), columns=df.columns, index=df.index)
 
     def on_group1_changed(self, text):
         if self.group1 != text:
@@ -172,36 +322,19 @@ class OWLimmaDifferentialExpression(OWWidget):
         g1 = self.group1_combo.currentText()
         g2 = self.group2_combo.currentText()
 
-        X = self.data.X
-        sample_names = [v.name for v in self.data.domain.attributes]
-
-        gene_names = None
-        if self.data.domain.metas:
-            for meta in self.data.domain.metas:
-                if meta.is_string:
-                    gene_names = [str(x) for x in self.data.get_column_view(meta)[0]]
-                    break
-                    
-        if gene_names is None:
-            gene_names = [f"Gene_{i+1}" for i in range(X.shape[0])]
-
-        samples = []
-        groups = []
-
-        for var in self.data.domain.attributes:
-
-            val = var.attributes.get(annotation, None)
-
-            if val == g1 or val == g2:
-                samples.append(var.name)
-                groups.append(val)
-
-        if len(samples) == 0:
+        if not annotation or not g1 or not g2 or g1 == g2:
             return
 
-        df = pd.DataFrame(np.array(X), columns=sample_names, index=gene_names)
+        try:
+            df, groups, gene_names = self.expression_frame(annotation, g1, g2)
+            if df is not None:
+                df = self.prepare_expression_values(df)
+        except ValueError as e:
+            self.error(str(e))
+            return
 
-        df = df[samples]
+        if df is None or len(groups) == 0:
+            return
 
         with localconverter(default_converter + pandas2ri.converter):
             r_expr = pandas2ri.py2rpy(df)
@@ -211,13 +344,17 @@ class OWLimmaDifferentialExpression(OWWidget):
         ro.globalenv["g1_level"] = g1
         ro.globalenv["g2_level"] = g2
 
-        ro.r("""
-        groups_factor <- factor(groups, levels=c(g1_level, g2_level))
-        design <- model.matrix(~ groups_factor)
-        fit <- lmFit(expr, design)
-        fit <- eBayes(fit)
-        res <- topTable(fit, coef=2, number=Inf, adjust.method="BH", sort.by="none")
-        """)
+        try:
+            ro.r("""
+            groups_factor <- factor(groups, levels=c(g1_level, g2_level))
+            design <- model.matrix(~ groups_factor)
+            fit <- lmFit(expr, design)
+            fit <- eBayes(fit)
+            res <- topTable(fit, coef=2, number=Inf, adjust.method="BH", sort.by="none")
+            """)
+        except Exception as e:
+            self.error(f"limma failed: {e}")
+            return
 
         with localconverter(default_converter + pandas2ri.converter):
             res = ro.r("res")
@@ -231,6 +368,17 @@ class OWLimmaDifferentialExpression(OWWidget):
             ContinuousVariable("p_value"),
             ContinuousVariable("adj_p_value")
         ]
+
+        if self.orientation == self.ORIENT_SAMPLES_ROWS:
+            gene_var = StringVariable("gene")
+            new_domain = Domain(new_vars, metas=(gene_var,))
+            table = Table(
+                new_domain,
+                np.vstack([logfc, pval, adjp]).T,
+                metas=np.array(gene_names, dtype=object).reshape(-1, 1),
+            )
+            self.Outputs.results.send(table)
+            return
 
         new_domain = Domain(self.data.domain.attributes,
                             self.data.domain.class_vars,
