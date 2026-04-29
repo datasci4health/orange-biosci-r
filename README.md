@@ -64,35 +64,54 @@ library(limma)
 
 ## macOS
 
-### Install R
-https://cran.r-project.org/
 
-### User library
-~~~bash
-mkdir -p ~/R/library
-echo '.libPaths("~/R/library")' >> ~/.Rprofile
-~~~
-
-### Install packages
-~~~bash
-R -e ".libPaths('~/R/library'); install.packages('BiocManager', repos='https://cloud.r-project.org/'); BiocManager::install('limma', ask=FALSE, update=FALSE)"
-~~~
-
-### Env
-~~~bash
-echo 'export R_LIBS_USER=~/R/library' >> ~/.zshrc
-source ~/.zshrc
-~~~
-
-### Test
-~~~bash
-R -e ".libPaths('~/R/library'); library(limma); cat('OK\n')"
-~~~
+> This guide covers installing R, BiocManager, and limma on macOS.
 
 ---
 
-## Final check
-~~~bash
-R -e "library(limma)"
-python -c "import rpy2.robjects as ro; print('OK')"
-~~~
+## 1. Install R
+
+
+
+1. Go to [https://cran.r-project.org/](https://cran.r-project.org/)
+2. Click **"Download R for macOS"**
+3. Download the latest `.pkg` installer (choose the correct version for your chip):
+   - **Apple Silicon (M1/M2/M3/M4):** `R-x.x.x-arm64.pkg`
+   - **Intel Mac:** `R-x.x.x-x86_64.pkg`
+4. Open the `.pkg` file and follow the installation wizard
+5. Verify by opening **Terminal** and running:
+
+```bash
+R --version
+```
+
+---
+
+## 2. Install BiocManager
+
+Open **R (run R.app)** or **RStudio** and run the following in the console:
+
+```r
+# Install BiocManager from CRAN
+install.packages("BiocManager")
+
+# Verify installation
+library(BiocManager)
+BiocManager::version()
+```
+
+---
+
+## 3. Install limma
+
+```r
+# Install limma from Bioconductor
+BiocManager::install("limma")
+
+# Verify installation
+library(limma)
+packageVersion("limma")
+```
+
+---
+
