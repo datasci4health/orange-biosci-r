@@ -309,8 +309,10 @@ class OWLimmaDifferentialExpression(OWWidget):
         except Exception:
             try:
                 import os
-                os.environ["R_LIBS_USER"] = os.path.expanduser("~/R/library")
-                ro.r(f'.libPaths(c("{os.path.expanduser("~/R/library")}", .libPaths()))')
+                r_lib_path = os.path.expanduser("~/R/library").replace('\\', '/')
+                os.environ["R_LIBS_USER"] = r_lib_path
+                ro.r(f'.libPaths(c("{r_lib_path}", .libPaths()))')
+                
                 limma = importr("limma")
                 base = importr("base")
                 stats = importr("stats")
